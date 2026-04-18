@@ -10,7 +10,21 @@ const CATEGORIES = [
   { id: "technology", label: "🔬 AgriTech",  query: "Africa agricultural technology innovation" },
 ];
 
-const FALLBACK_IMAGES = {
+// Different fallback images per article index so they don't all look the same
+const FALLBACK_IMAGES = [
+  "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=600&q=80",
+  "https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=600&q=80",
+  "https://images.unsplash.com/photo-1592982537447-6f2a6a0a7b8e?w=600&q=80",
+  "https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=600&q=80",
+  "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=600&q=80",
+  "https://images.unsplash.com/photo-1598300042247-d088f8ab3a91?w=600&q=80",
+  "https://images.unsplash.com/photo-1560493676-04071c5f467b?w=600&q=80",
+  "https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=600&q=80",
+  "https://images.unsplash.com/photo-1530836369250-ef72a3f5cda8?w=600&q=80",
+  "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600&q=80",
+];
+
+const CATEGORY_IMAGES = {
   farming:    "https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=600&q=80",
   weather:    "https://images.unsplash.com/photo-1504608524841-42584120d693?w=600&q=80",
   prices:     "https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=600&q=80",
@@ -44,18 +58,18 @@ export default function News({ user }) {
     setArticles([]);
 
     try {
-      // All GNews fetching is done server-side in main.py — no CORS issues
       const res = await axios.get(config.API_URL + "/api/news", {
-        params: { category: cat },
+        params:  { category: cat },
         timeout: 20000,
       });
 
       const arts = res.data.articles || [];
 
       if (arts.length > 0) {
-        const enriched = arts.map(a => ({
+        // Give each article a UNIQUE fallback image based on its index
+        const enriched = arts.map((a, i) => ({
           ...a,
-          image: a.image || FALLBACK_IMAGES[cat] || FALLBACK_IMAGES.farming,
+          image: a.image || FALLBACK_IMAGES[i % FALLBACK_IMAGES.length],
         }));
         setArticles(enriched);
         setSource(res.data.source || "live");
@@ -68,6 +82,12 @@ export default function News({ user }) {
     }
 
     setLoading(false);
+  };
+
+  const openArticle = (url) => {
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   };
 
   return (
@@ -144,18 +164,55 @@ export default function News({ user }) {
           </div>
 
           {articles.map((article, i) => (
-            <div key={i} className="card"
-              style={{ overflow: "hidden", padding: 0, marginBottom: 16 }}>
-
-              {/* Image */}
-              <img
-                src={article.image}
-                alt={article.title}
-                style={{ width: "100%", height: 200, objectFit: "cover" }}
-                onError={e => {
-                  e.target.src = FALLBACK_IMAGES[category] || FALLBACK_IMAGES.farming;
-                }}
-              />
+            <div
+              key={i}
+              className="card"
+              onClick={() => openArticle(article.url)}
+              style={{
+                overflow: "hidden",
+                padding: 0,
+                marginBottom: 16,
+                cursor: article.url ? "pointer" : "default",
+                transition: "transform 0.15s, box-shadow 0.15s",
+              }}
+              onMouseEnter={e => {
+                if (article.url) {
+                  e.currentTarget.style.transform = "translateY(-2px)";
+                  e.currentTarget.style.boxShadow = "0 4px 20px rgba(0,0,0,0.15)";
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow = "";
+              }}
+            >
+              {/* Image — unique per article */}
+              <div style={{ position: "relative" }}>
+                <img
+                  src={article.image}
+                  alt={article.title}
+                  style={{ width: "100%", height: 200, objectFit: "cover", display: "block" }}
+                  onError={e => {
+                    // On error use a unique fallback based on index
+                    e.target.src = FALLBACK_IMAGES[i % FALLBACK_IMAGES.length];
+                    // If that also fails use category image
+                    e.target.onerror = () => {
+                      e.target.src = CATEGORY_IMAGES[category] || FALLBACK_IMAGES[0];
+                    };
+                  }}
+                />
+                {/* Tap to read overlay hint */}
+                {article.url && (
+                  <div style={{
+                    position: "absolute", bottom: 0, right: 0,
+                    background: "rgba(46,125,50,0.85)",
+                    color: "white", fontSize: 11, fontWeight: 700,
+                    padding: "4px 10px", borderTopLeftRadius: 8,
+                  }}>
+                    TAP TO READ
+                  </div>
+                )}
+              </div>
 
               <div style={{ padding: 16 }}>
                 {/* Source + Time */}
@@ -195,17 +252,27 @@ export default function News({ user }) {
                   </p>
                 )}
 
-                {/* Read More */}
+                {/* Read More button */}
                 {article.url && (
-                  <a href={article.url} target="_blank" rel="noopener noreferrer"
-                    style={{
-                      background: "#2e7d32", color: "white",
-                      padding: "7px 16px", borderRadius: 8,
-                      textDecoration: "none", fontSize: 13,
-                      fontWeight: 700, display: "inline-block",
-                    }}>
+                  <div style={{
+                    background: "#2e7d32", color: "white",
+                    padding: "8px 16px", borderRadius: 8,
+                    fontSize: 13, fontWeight: 700,
+                    display: "inline-block", marginTop: 4,
+                  }}>
                     Read Full Story &#8594;
-                  </a>
+                  </div>
+                )}
+
+                {/* AI article — no link */}
+                {!article.url && (
+                  <div style={{
+                    background: "#f5f5f5", color: "#888",
+                    padding: "6px 12px", borderRadius: 8,
+                    fontSize: 12, display: "inline-block",
+                  }}>
+                    🤖 AI Summary
+                  </div>
                 )}
               </div>
             </div>
