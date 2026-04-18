@@ -1,6 +1,6 @@
 const config = {
-  API_URL: "https://agrobot-c6ff.onrender.com",
-  WS_URL: "wss://agrobot-c6ff.onrender.com",
+  API_URL: "https://agrobot-s4eb.onrender.com",
+  WS_URL: "wss://agrobot-s4eb.onrender.com",
   COMPANY: "TM AGRO Solutions",
   BOT_NAME: "AgroBot Pro",
   SUPPORT_PHONE: "0787 341 018",
