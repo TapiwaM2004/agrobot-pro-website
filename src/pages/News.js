@@ -201,17 +201,15 @@ export default function News({ user }) {
                     };
                   }}
                 />
-                {/* Tap to read overlay hint */}
-                {article.url && (
-                  <div style={{
-                    position: "absolute", bottom: 0, right: 0,
-                    background: "rgba(46,125,50,0.85)",
-                    color: "white", fontSize: 11, fontWeight: 700,
-                    padding: "4px 10px", borderTopLeftRadius: 8,
-                  }}>
-                    TAP TO READ
-                  </div>
-                )}
+                {/* Tap to read overlay — always visible */}
+                <div style={{
+                  position: "absolute", bottom: 0, right: 0,
+                  background: article.url ? "rgba(46,125,50,0.85)" : "rgba(100,100,100,0.7)",
+                  color: "white", fontSize: 11, fontWeight: 700,
+                  padding: "4px 10px", borderTopLeftRadius: 8,
+                }}>
+                  {article.url ? "TAP TO READ ↗" : "AI SUMMARY"}
+                </div>
               </div>
 
               <div style={{ padding: 16 }}>
@@ -252,28 +250,29 @@ export default function News({ user }) {
                   </p>
                 )}
 
-                {/* Read More button */}
-                {article.url && (
-                  <div style={{
-                    background: "#2e7d32", color: "white",
-                    padding: "8px 16px", borderRadius: 8,
-                    fontSize: 13, fontWeight: 700,
-                    display: "inline-block", marginTop: 4,
-                  }}>
-                    Read Full Story &#8594;
-                  </div>
-                )}
-
-                {/* AI article — no link */}
-                {!article.url && (
-                  <div style={{
-                    background: "#f5f5f5", color: "#888",
-                    padding: "6px 12px", borderRadius: 8,
-                    fontSize: 12, display: "inline-block",
-                  }}>
-                    🤖 AI Summary
-                  </div>
-                )}
+                {/* Read More button — always visible */}
+                <a
+                  href={article.url || "#"}
+                  target={article.url ? "_blank" : "_self"}
+                  rel="noopener noreferrer"
+                  onClick={e => {
+                    if (!article.url) e.preventDefault();
+                  }}
+                  style={{
+                    background:     article.url ? "#2e7d32" : "#9e9e9e",
+                    color:          "white",
+                    padding:        "8px 16px",
+                    borderRadius:   8,
+                    fontSize:       13,
+                    fontWeight:     700,
+                    display:        "inline-block",
+                    marginTop:      4,
+                    textDecoration: "none",
+                    cursor:         article.url ? "pointer" : "not-allowed",
+                  }}
+                >
+                  {article.url ? "Read Full Story ↗" : "🤖 AI Summary"}
+                </a>
               </div>
             </div>
           ))}
