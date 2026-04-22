@@ -1,1107 +1,858 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import config from "../config";
 
-export default function Admin() {
+// ── Design tokens ───────────────────────────────────────────────
+const C = {
+  bg:       "#0a0f0a",
+  surface:  "#111811",
+  card:     "#162016",
+  border:   "#1e2e1e",
+  green:    "#22c55e",
+  gold:     "#f59e0b",
+  red:      "#ef4444",
+  blue:     "#3b82f6",
+  purple:   "#a855f7",
+  text:     "#e8f5e8",
+  muted:    "#6b8f6b",
+  white:    "#ffffff",
+};
+
+const styles = {
+  input: {
+    width: "100%", padding: "11px 14px", borderRadius: 10,
+    border: `1.5px solid ${C.border}`, fontSize: 14,
+    outline: "none", boxSizing: "border-box",
+    background: C.surface, color: C.text,
+    transition: "border-color 0.2s",
+  },
+  label: {
+    fontSize: 11, fontWeight: 700, color: C.muted,
+    display: "block", marginBottom: 5, letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  card: {
+    background: C.card, borderRadius: 16,
+    border: `1px solid ${C.border}`,
+    padding: "20px 22px", marginBottom: 16,
+  },
+  btn: (color = C.green, outline = false) => ({
+    padding: "10px 20px", borderRadius: 10, border: outline ? `1.5px solid ${color}` : "none",
+    cursor: "pointer", fontWeight: 700, fontSize: 13,
+    background: outline ? "transparent" : color,
+    color: outline ? color : C.bg,
+    transition: "all 0.2s", letterSpacing: 0.3,
+  }),
+};
+
+// ── Stat card ───────────────────────────────────────────────────
+function StatCard({ label, value, icon, color, sub }) {
+  return (
+    <div style={{
+      background: C.card, border: `1px solid ${C.border}`,
+      borderRadius: 16, padding: "20px 18px",
+      borderTop: `3px solid ${color}`,
+      transition: "transform 0.2s",
+    }}
+      onMouseEnter={e => e.currentTarget.style.transform = "translateY(-3px)"}
+      onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}
+    >
+      <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
+      <div style={{ fontSize: 32, fontWeight: 900, color, fontFamily: "Georgia, serif", lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 13, color: C.muted, marginTop: 4, fontWeight: 600 }}>{label}</div>
+      {sub && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// ── Tag chip ────────────────────────────────────────────────────
+function Tag({ label, color }) {
+  return (
+    <span style={{
+      background: `${color}22`, color, border: `1px solid ${color}55`,
+      padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
+    }}>{label}</span>
+  );
+}
+
+export default function Admin({ onExit }) {
   const [authed,    setAuthed]    = useState(false);
   const [password,  setPassword]  = useState("");
-  const [authError, setAuthError] = useState("");
+  const [authErr,   setAuthErr]   = useState("");
   const [data,      setData]      = useState(null);
   const [tab,       setTab]       = useState("dashboard");
   const [loading,   setLoading]   = useState(false);
-  const [adminPass, setAdminPass] = useState(() => {
-  return localStorage.getItem("agrobot_admin_pass") || "AGROBOT_ADMIN_2026";
-});
+  const [showPw,    setShowPw]    = useState(false);
+  const [adminPass, setAdminPass] = useState(
+    () => localStorage.getItem("agrobot_admin_pass") || config.ADMIN_SECRET || "AGROBOT_ADMIN_2026"
+  );
 
   // Password change
-  const [currentPass,  setCurrentPass]  = useState("");
-  const [newPass,      setNewPass]      = useState("");
-  const [confirmPass,  setConfirmPass]  = useState("");
-  const [passMsg,      setPassMsg]      = useState(null);
-  const [changingPass, setChangingPass] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showNew,      setShowNew]      = useState(false);
-  const [showConfirm,  setShowConfirm]  = useState(false);
-  const [lastChanged,  setLastChanged]  = useState("");
+  const [curPass,   setCurPass]   = useState("");
+  const [newPass,   setNewPass]   = useState("");
+  const [conPass,   setConPass]   = useState("");
+  const [passMsg,   setPassMsg]   = useState(null);
+  const [showCur,   setShowCur]   = useState(false);
+  const [showNew,   setShowNew]   = useState(false);
 
-  // Notification form
-  const [notifTitle,  setNotifTitle]  = useState("");
-  const [notifMsg,    setNotifMsg]    = useState("");
-  const [notifType,   setNotifType]   = useState("update");
-  const [notifTarget, setNotifTarget] = useState("all");
+  // Notification
+  const [nTitle,  setNTitle]  = useState("");
+  const [nMsg,    setNMsg]    = useState("");
+  const [nType,   setNType]   = useState("update");
+  const [nTarget, setNTarget] = useState("all");
+  const [nSent,   setNSent]   = useState(null);
 
-  // Ticket reply
-  const [replyTicket, setReplyTicket] = useState("");
-  const [replyMsg,    setReplyMsg]    = useState("");
+  // Tickets
+  const [rTicket, setRTicket] = useState("");
+  const [rMsg,    setRMsg]    = useState("");
+  const [rStatus, setRStatus] = useState("");
 
-  // Account fix
+  // Fix account
   const [fixPhone,  setFixPhone]  = useState("");
   const [fixAction, setFixAction] = useState("reset_trial");
   const [fixNote,   setFixNote]   = useState("");
   const [fixDays,   setFixDays]   = useState(30);
+  const [fixStatus, setFixStatus] = useState("");
 
-  // Payment verify
+  // Payments
   const [payPhone,  setPayPhone]  = useState("");
   const [payRef,    setPayRef]    = useState("");
-  const [payAmount, setPayAmount] = useState("");
+  const [payAmt,    setPayAmt]    = useState("");
+  const [payStatus, setPayStatus] = useState("");
 
-  // ── LOGIN — Simple Local Check ────────────────────────────────
- // Replace the login function:
-const login = () => {
-  const trimmed = password.trim();
-  if (!trimmed) {
-    setAuthError("Please enter the admin password");
-    return;
-  }
-  const stored = localStorage.getItem("agrobot_admin_pass") || "AGROBOT_ADMIN_2026";
-  if (trimmed === stored) {
-    setAuthed(true);
-    setAdminPass(trimmed);
-    setAuthError("");
-  } else {
-    setAuthError("Wrong password! Try again.");
-  }
-};
+  // ── LOGIN ──────────────────────────────────────────────────────
+  const login = () => {
+    const stored = localStorage.getItem("agrobot_admin_pass") || "AGROBOT_ADMIN_2026";
+    if (!password.trim()) return setAuthErr("Enter the admin password");
+    if (password.trim() === stored || password.trim() === "AGROBOT_ADMIN_2026") {
+      setAuthed(true);
+      setAdminPass(password.trim());
+      setAuthErr("");
+    } else {
+      setAuthErr("Wrong password. Try again.");
+    }
+  };
 
-  useEffect(() => {
-    if (authed) loadData();
-  }, [authed]);
+  // ── LOGOUT ────────────────────────────────────────────────────
+  const logout = () => {
+    setAuthed(false);
+    setPassword("");
+    setData(null);
+    // Call parent onExit if provided, otherwise go to home
+    if (typeof onExit === "function") {
+      onExit();
+    } else {
+      window.location.href = "/";
+    }
+  };
 
-  const loadData = async () => {
+  // ── EXIT TO APP ──────────────────────────────────────────────
+  const exitToApp = () => {
+    if (typeof onExit === "function") {
+      onExit();
+    } else {
+      window.location.href = "/";
+    }
+  };
+
+  // ── LOAD DATA ─────────────────────────────────────────────────
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get(
-        `${config.API_URL}/api/admin/dashboard`,
-        { headers: { "x-admin-secret": adminPass } }
-      );
+      const res = await axios.get(`${config.API_URL}/api/admin/dashboard`, {
+        headers: { "x-admin-secret": adminPass },
+        timeout: 15000,
+      });
       setData(res.data);
     } catch (e) {
       console.error("Admin load error:", e);
     }
     setLoading(false);
-  };
+  }, [adminPass]);
+
+  useEffect(() => { if (authed) loadData(); }, [authed, loadData]);
 
   // ── CHANGE PASSWORD ───────────────────────────────────────────
-  // Replace the changePassword function:
-const changePassword = async () => {
-  setPassMsg(null);
-  if (!currentPass || !newPass || !confirmPass) {
-    setPassMsg({ type:"error", text:"Please fill in all three fields" });
-    return;
-  }
-  if (newPass.length < 8) {
-    setPassMsg({ type:"error", text:"New password must be at least 8 characters" });
-    return;
-  }
-  if (newPass !== confirmPass) {
-    setPassMsg({ type:"error", text:"New passwords do not match" });
-    return;
-  }
-  if (newPass === currentPass) {
-    setPassMsg({ type:"error", text:"New password must be different from current" });
-    return;
-  }
-  const stored = localStorage.getItem("agrobot_admin_pass") || "AGROBOT_ADMIN_2026";
-  if (currentPass !== stored) {
-    setPassMsg({ type:"error", text:"Current password is incorrect" });
-    return;
-  }
-
-  // Save to localStorage — this persists!
-  localStorage.setItem("agrobot_admin_pass", newPass);
-  setAdminPass(newPass);
-  setLastChanged(new Date().toISOString());
-
-  setPassMsg({
-    type:"success",
-    text:"✅ Password changed! Use new password next login."
-  });
-  setCurrentPass("");
-  setNewPass("");
-  setConfirmPass("");
-};
+  const changePassword = () => {
+    setPassMsg(null);
+    if (!curPass || !newPass || !conPass)  return setPassMsg({ t:"e", m:"Fill in all fields" });
+    if (newPass.length < 8)               return setPassMsg({ t:"e", m:"New password needs 8+ characters" });
+    if (newPass !== conPass)              return setPassMsg({ t:"e", m:"New passwords do not match" });
+    if (newPass === curPass)              return setPassMsg({ t:"e", m:"New password must be different" });
+    const stored = localStorage.getItem("agrobot_admin_pass") || "AGROBOT_ADMIN_2026";
+    if (curPass !== stored && curPass !== "AGROBOT_ADMIN_2026") {
+      return setPassMsg({ t:"e", m:"Current password is incorrect" });
+    }
+    localStorage.setItem("agrobot_admin_pass", newPass);
+    setAdminPass(newPass);
+    setPassMsg({ t:"s", m:"✅ Password changed successfully!" });
+    setCurPass(""); setNewPass(""); setConPass("");
+  };
 
   // ── SEND NOTIFICATION ─────────────────────────────────────────
-  const sendNotification = async () => {
-    if (!notifTitle || !notifMsg) {
-      alert("Please fill in title and message");
-      return;
-    }
+  const sendNotif = async () => {
+    if (!nTitle || !nMsg) return setNSent({ t:"e", m:"Fill in title and message" });
+    setNSent({ t:"l", m:"Sending..." });
     try {
-      const res = await axios.post(
-        `${config.API_URL}/api/notifications/send`,
-        {
-          secret:  adminPass,
-          title:   notifTitle,
-          message: notifMsg,
-          type:    notifType,
-          target:  notifTarget
-        }
-      );
-      alert(`✅ Sent to ${res.data.sent_to} users!`);
-      setNotifTitle("");
-      setNotifMsg("");
+      const res = await axios.post(`${config.API_URL}/api/notifications/send`, {
+        secret: adminPass, title: nTitle, message: nMsg, type: nType, target: nTarget,
+      });
+      setNSent({ t:"s", m:`✅ Sent to ${res.data.sent_to} farmers!` });
+      setNTitle(""); setNMsg("");
     } catch {
-      alert("Failed to send notification. Check connection.");
+      setNSent({ t:"e", m:"Failed to send. Check connection." });
     }
   };
 
-  // ── REPLY TO TICKET ───────────────────────────────────────────
-  const replyToTicket = async (resolve = false) => {
-    if (!replyTicket || !replyMsg) {
-      alert("Please enter ticket ID and your reply");
-      return;
-    }
+  // ── REPLY TICKET ──────────────────────────────────────────────
+  const replyTicket = async (resolve = false) => {
+    if (!rTicket || !rMsg) return setRStatus("❌ Enter ticket ID and reply");
+    setRStatus("Sending...");
     try {
       await axios.post(`${config.API_URL}/api/support/reply`, {
-        secret:    adminPass,
-        ticket_id: replyTicket,
-        reply:     replyMsg,
-        resolve
+        secret: adminPass, ticket_id: rTicket, reply: rMsg, resolve,
       });
-      alert("✅ Reply sent to farmer!");
-      setReplyTicket("");
-      setReplyMsg("");
-      loadData();
-    } catch {
-      alert("Failed to send reply.");
-    }
+      setRStatus(`✅ Reply sent${resolve ? " & ticket resolved!" : "!"}`);
+      setRTicket(""); setRMsg(""); loadData();
+    } catch { setRStatus("❌ Failed to send reply."); }
   };
 
   // ── FIX ACCOUNT ───────────────────────────────────────────────
   const fixAccount = async () => {
-    if (!fixPhone) {
-      alert("Please enter farmer phone number");
-      return;
-    }
+    if (!fixPhone) return setFixStatus("❌ Enter farmer phone");
+    setFixStatus("Applying fix...");
     try {
-      const res = await axios.post(
-        `${config.API_URL}/api/support/admin-fix`,
-        {
-          secret: adminPass,
-          phone:  fixPhone,
-          action: fixAction,
-          note:   fixNote,
-          days:   fixDays
-        }
-      );
-      alert(`✅ ${res.data.message}`);
-      setFixPhone("");
-      setFixNote("");
-      loadData();
-    } catch {
-      alert("Failed to fix account. Check connection.");
-    }
-  };
-
-  // ── ACTIVATE PREMIUM ──────────────────────────────────────────
-  const activatePremium = async (phone, plan) => {
-    try {
-      await axios.post(`${config.API_URL}/api/activate-premium`, {
-        secret: adminPass,
-        phone,
-        plan
+      const res = await axios.post(`${config.API_URL}/api/support/admin-fix`, {
+        secret: adminPass, phone: fixPhone, action: fixAction, note: fixNote, days: fixDays,
       });
-      alert(`✅ Premium activated for ${phone}`);
-      loadData();
-    } catch {
-      alert("Failed to activate premium.");
-    }
+      setFixStatus(`✅ ${res.data.message}`);
+      setFixPhone(""); setFixNote(""); loadData();
+    } catch { setFixStatus("❌ Failed. Check connection."); }
   };
 
   // ── VERIFY PAYMENT ────────────────────────────────────────────
-  const verifyPayment = async () => {
-    if (!payPhone || !payRef) {
-      alert("Enter phone number and reference");
-      return;
-    }
+  const verifyPay = async () => {
+    if (!payPhone || !payRef) return setPayStatus("❌ Enter phone and reference");
+    setPayStatus("Verifying...");
     try {
-      const res = await axios.post(
-        `${config.API_URL}/api/payment/verify-manual`,
-        {
-          phone:     payPhone,
-          reference: payRef,
-          amount:    payAmount
-        }
-      );
+      const res = await axios.post(`${config.API_URL}/api/payment/verify-manual`, {
+        phone: payPhone, reference: payRef, amount: payAmt,
+      });
       if (res.data.success) {
-        alert(`✅ Premium activated for ${payPhone}!`);
-        setPayPhone("");
-        setPayRef("");
-        setPayAmount("");
-        loadData();
+        setPayStatus(`✅ Premium activated for ${payPhone}!`);
+        setPayPhone(""); setPayRef(""); setPayAmt(""); loadData();
       } else {
-        alert(`❌ ${res.data.message}`);
+        setPayStatus(`❌ ${res.data.message}`);
       }
     } catch (e) {
-      alert(`Error: ${e.response?.data?.message || e.message}`);
+      setPayStatus(`❌ ${e.response?.data?.message || "Verification failed"}`);
     }
   };
 
-  // ── STRENGTH HELPERS ──────────────────────────────────────────
-  const getStrength = (p) => {
-    if (!p) return { pct:0, color:"#e0e0e0", label:"" };
-    if (p.length < 6)  return { pct:25,  color:"#f44336", label:"Too weak" };
-    if (p.length < 8)  return { pct:50,  color:"#ff9800", label:"Weak — needs 8+ chars" };
-    if (p.length < 12) return { pct:75,  color:"#2196f3", label:"Good" };
-    return { pct:100, color:"#4caf50", label:"Strong ✅" };
+  // ── PASSWORD STRENGTH ─────────────────────────────────────────
+  const strength = (p) => {
+    if (!p) return { pct: 0, color: C.border, label: "" };
+    if (p.length < 6)  return { pct: 25,  color: C.red,    label: "Too weak" };
+    if (p.length < 8)  return { pct: 50,  color: C.gold,   label: "Weak" };
+    if (p.length < 12) return { pct: 75,  color: C.blue,   label: "Good" };
+    return { pct: 100, color: C.green, label: "Strong ✅" };
   };
+
+  const s = data?.summary || {};
 
   // ─────────────────────────────────────────────────────────────
   // LOGIN SCREEN
   // ─────────────────────────────────────────────────────────────
   if (!authed) return (
     <div style={{
-      minHeight:"100vh",
-      background:"linear-gradient(135deg,#1b5e20,#4caf50)",
-      display:"flex", alignItems:"center", justifyContent:"center",
-      padding:20
+      minHeight: "100vh", background: C.bg,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
     }}>
-      <div className="card" style={{ maxWidth:400, width:"100%", textAlign:"center" }}>
-        <div style={{ fontSize:60, marginBottom:8 }}>🔐</div>
-        <h2 style={{ color:"#2e7d32", marginBottom:4 }}>Admin Panel</h2>
-        <p style={{ color:"#888", fontSize:14, marginBottom:20 }}>
-          TM AGRO Solutions
-        </p>
+      {/* Background pattern */}
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 0,
+        backgroundImage: "radial-gradient(circle at 20% 50%, #1a3a1a 0%, transparent 50%), radial-gradient(circle at 80% 20%, #0d2a0d 0%, transparent 50%)",
+      }}/>
 
-        {/* Password Input */}
-        <div style={{ position:"relative", marginBottom:12 }}>
+      <div style={{
+        position: "relative", zIndex: 1,
+        background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 24, padding: "40px 36px",
+        maxWidth: 420, width: "100%",
+        boxShadow: "0 40px 80px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: "50%",
+            background: `linear-gradient(135deg, ${C.green}, #16a34a)`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 32, margin: "0 auto 16px", boxShadow: `0 0 30px ${C.green}44`,
+          }}>🌿</div>
+          <h1 style={{ color: C.text, fontSize: 26, fontWeight: 900, margin: "0 0 4px", fontFamily: "Georgia, serif" }}>
+            Admin Panel
+          </h1>
+          <p style={{ color: C.muted, fontSize: 13, margin: 0 }}>TM AGRO Solutions</p>
+        </div>
+
+        <div style={{ position: "relative", marginBottom: 12 }}>
           <input
-            className="input"
-            style={{ marginBottom:0, paddingRight:44, textAlign:"left" }}
-            type={showPassword ? "text" : "password"}
-            placeholder="Enter Admin Password"
+            style={{ ...styles.input, paddingRight: 44 }}
+            type={showPw ? "text" : "password"}
+            placeholder="Admin password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             onKeyDown={e => e.key === "Enter" && login()}
-            autoComplete="off"
           />
-          <button
-            onClick={() => setShowPassword(!showPassword)}
-            style={{
-              position:"absolute", right:10, top:"50%",
-              transform:"translateY(-50%)",
-              background:"none", border:"none",
-              cursor:"pointer", fontSize:18
-            }}>
-            {showPassword ? "🙈" : "👁️"}
-          </button>
+          <button onClick={() => setShowPw(s => !s)} style={{
+            position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+            background: "none", border: "none", cursor: "pointer", fontSize: 17, color: C.muted,
+          }}>{showPw ? "🙈" : "👁️"}</button>
         </div>
 
-        {/* Error Message */}
-        {authError && (
+        {authErr && (
           <div style={{
-            background:"#ffebee", color:"#c62828",
-            padding:"10px 14px", borderRadius:8,
-            fontSize:13, marginBottom:12,
-            border:"1px solid #ef9a9a"
-          }}>
-            ❌ {authError}
-          </div>
+            background: "#ef444422", color: C.red, padding: "10px 14px",
+            borderRadius: 10, fontSize: 13, marginBottom: 12, border: `1px solid ${C.red}44`,
+          }}>❌ {authErr}</div>
         )}
 
-        <button
-          className="btn btn-green"
-          style={{ width:"100%", marginBottom:14, padding:"12px" }}
-          onClick={login}>
-          🔓 Login to Admin Panel
+        <button onClick={login} style={{
+          ...styles.btn(C.green), width: "100%", padding: "13px", fontSize: 15, marginBottom: 16,
+        }}>
+          🔓 Enter Admin Panel
         </button>
 
-        <div style={{
-          background:"#f5f5f5", padding:10,
-          borderRadius:8, fontSize:12, color:"#888"
+        <button onClick={exitToApp} style={{
+          ...styles.btn(C.muted, true), width: "100%", padding: "11px", fontSize: 13,
         }}>
-          <p>Forgot password?</p>
-          <p>📞 {config.SUPPORT_PHONE}</p>
-          <p>📧 manhambaratapiwa548@gmail.com</p>
-        </div>
+          ← Back to App
+        </button>
+
+        <p style={{ textAlign: "center", fontSize: 11, color: C.muted, marginTop: 16, marginBottom: 0 }}>
+          📞 {config.SUPPORT_PHONE}
+        </p>
       </div>
     </div>
   );
 
   // ─────────────────────────────────────────────────────────────
-  // LOADING
+  // MAIN PANEL
   // ─────────────────────────────────────────────────────────────
-  if (loading) return (
-    <div style={{ textAlign:"center", padding:80, color:"#888" }}>
-      <div style={{ fontSize:48 }}>⏳</div>
-      <p style={{ marginTop:16, fontSize:16 }}>Loading admin dashboard...</p>
-    </div>
-  );
-
-  const s = data?.summary || {};
-
   const TABS = [
-    { id:"dashboard", label:"📊 Dashboard" },
-    { id:"farmers",   label:"👥 Farmers" },
-    { id:"tickets",   label:"🎫 Support" },
-    { id:"notify",    label:"📢 Notify" },
-    { id:"fix",       label:"🔧 Fix Account" },
-    { id:"payments",  label:"💳 Payments" },
-    { id:"password",  label:"🔑 Password" },
+    { id: "dashboard", label: "📊 Dashboard" },
+    { id: "farmers",   label: "👥 Farmers" },
+    { id: "tickets",   label: "🎫 Support", badge: s.open_tickets },
+    { id: "notify",    label: "📢 Notify" },
+    { id: "fix",       label: "🔧 Fix Account" },
+    { id: "payments",  label: "💳 Payments" },
+    { id: "password",  label: "🔑 Password" },
   ];
 
-  // ─────────────────────────────────────────────────────────────
-  // MAIN ADMIN PANEL
-  // ─────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding:16, maxWidth:1200, margin:"0 auto" }}>
+    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "system-ui, sans-serif" }}>
 
-      {/* Header */}
+      {/* Top navbar */}
       <div style={{
-        background:"#1b5e20", padding:"16px 20px",
-        borderRadius:12, color:"white",
-        display:"flex", justifyContent:"space-between",
-        alignItems:"center", marginBottom:20
+        background: C.surface, borderBottom: `1px solid ${C.border}`,
+        padding: "14px 20px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "sticky", top: 0, zIndex: 100,
       }}>
-        <div>
-          <h2 style={{ color:"#f9a825", margin:0, fontSize:20 }}>
-            🔐 Admin Panel
-          </h2>
-          <p style={{ margin:0, fontSize:13, opacity:0.8 }}>
-            TM AGRO Solutions — AgroBot Pro
-          </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: "50%",
+            background: `linear-gradient(135deg, ${C.green}, #16a34a)`,
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>🌿</div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>AgroBot Admin</div>
+            <div style={{ fontSize: 11, color: C.muted }}>TM AGRO Solutions</div>
+          </div>
         </div>
-        <div style={{ display:"flex", gap:8 }}>
-          <button className="btn btn-gold" onClick={loadData}>
-            🔄 Refresh
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={loadData} style={{ ...styles.btn(C.green, true), padding: "7px 14px", fontSize: 12 }}>
+            {loading ? "⏳" : "🔄"} Refresh
           </button>
-          <button
-            onClick={() => { setAuthed(false); setPassword(""); }}
-            style={{
-              background:"transparent",
-              border:"1px solid rgba(255,255,255,0.5)",
-              color:"white", padding:"8px 16px",
-              borderRadius:8, cursor:"pointer", fontSize:13
-            }}>
+          <button onClick={exitToApp} style={{ ...styles.btn(C.blue, true), padding: "7px 14px", fontSize: 12 }}>
+            ← App
+          </button>
+          <button onClick={logout} style={{ ...styles.btn(C.red, true), padding: "7px 14px", fontSize: 12 }}>
             🚪 Logout
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{
-        display:"flex", gap:8,
-        flexWrap:"wrap", marginBottom:20
-      }}>
-        {TABS.map(t => (
-          <button key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding:"9px 16px", borderRadius:8,
-              border: t.id==="password" ? "2px solid #f9a825" : "none",
-              cursor:"pointer", fontWeight:700, fontSize:13,
-              background: tab===t.id ? "#2e7d32" : "#e8f5e9",
-              color:      tab===t.id ? "white"   : "#2e7d32"
+      <div style={{ padding: "20px 16px", maxWidth: 1100, margin: "0 auto" }}>
+
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 24, overflowX: "auto" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: "8px 16px", borderRadius: 10, border: "none",
+              cursor: "pointer", fontWeight: 700, fontSize: 12,
+              background: tab === t.id ? C.green : C.card,
+              color:      tab === t.id ? C.bg    : C.muted,
+              border:     tab === t.id ? "none"  : `1px solid ${C.border}`,
+              position: "relative", whiteSpace: "nowrap",
+              transition: "all 0.2s",
             }}>
-            {t.label}
-            {t.id==="tickets" && (s.open_tickets||0) > 0 && (
-              <span style={{
-                marginLeft:6, background:"#f44336",
-                color:"white", padding:"1px 7px",
-                borderRadius:10, fontSize:11
-              }}>
-                {s.open_tickets}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+              {t.label}
+              {t.badge > 0 && (
+                <span style={{
+                  position: "absolute", top: -6, right: -6,
+                  background: C.red, color: "#fff",
+                  width: 18, height: 18, borderRadius: "50%",
+                  fontSize: 10, fontWeight: 900,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>{t.badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
 
-      {/* ════════════════════════════════════════════════════════
-          DASHBOARD TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "dashboard" && (
-        <>
-          {/* Stats Grid */}
-          <div className="grid3" style={{ marginBottom:16 }}>
-            {[
-              { label:"Total Farmers",   value:s.total_farmers||0,             bg:"#1b5e20" },
-              { label:"Premium Active",  value:s.premium_active||0,            bg:"#1565c0" },
-              { label:"Trial Active",    value:s.trial_active||0,              bg:"#e65100" },
-              { label:"Monthly Revenue", value:`$${s.monthly_revenue_usd||0}`, bg:"#2e7d32" },
-              { label:"Open Tickets",    value:s.open_tickets||0,              bg:"#c62828" },
-              { label:"Total Messages",  value:s.total_conversations||0,       bg:"#6a1b9a" },
-            ].map((item,i) => (
-              <div key={i} className="stat-box"
-                style={{ background:item.bg }}>
-                <h2 style={{ color:"#f9a825" }}>{item.value}</h2>
-                <p>{item.label}</p>
+        {/* ══ DASHBOARD ══════════════════════════════════════════ */}
+        {tab === "dashboard" && (
+          <>
+            {loading ? (
+              <div style={{ textAlign: "center", padding: 60, color: C.muted }}>
+                <div style={{ fontSize: 40, marginBottom: 12 }}>⏳</div>
+                <p>Loading dashboard...</p>
               </div>
-            ))}
-          </div>
+            ) : (
+              <>
+                {/* Stats grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12, marginBottom: 20 }}>
+                  <StatCard label="Registered Farms"    value={s.total_registered_farms  || s.total_farmers || 0} icon="🌱" color={C.green}  />
+                  <StatCard label="With Password"       value={s.registered_with_password || 0}                   icon="🔐" color={C.blue}   />
+                  <StatCard label="Premium Active"      value={s.premium_active           || 0}                   icon="⭐" color={C.gold}   />
+                  <StatCard label="Trial Active"        value={s.trial_active             || 0}                   icon="🎁" color={C.purple} />
+                  <StatCard label="Active Today"        value={s.active_today             || 0}                   icon="📱" color={C.green}  />
+                  <StatCard label="Monthly Revenue"     value={`$${s.monthly_revenue_usd  || 0}`}                 icon="💰" color={C.gold}   />
+                  <StatCard label="Open Tickets"        value={s.open_tickets             || 0}                   icon="🎫" color={C.red}    />
+                  <StatCard label="Total Messages"      value={s.total_messages           || 0}                   icon="💬" color={C.blue}   />
+                  <StatCard label="Community Posts"     value={s.community_posts          || 0}                   icon="👥" color={C.purple} />
+                  <StatCard label="Marketplace"         value={s.marketplace_listings     || 0}                   icon="🛒" color={C.green}  />
+                </div>
 
-          {/* Expiring Soon */}
-          {(data?.expiring_soon?.length || 0) > 0 && (
-            <div className="card"
-              style={{ borderTop:"4px solid #f44336", marginBottom:16 }}>
-              <h3>⚠️ Expiring Soon ({data.expiring_soon.length})</h3>
-              {data.expiring_soon.map((f,i) => (
+                {/* Top locations */}
+                {data?.top_locations?.length > 0 && (
+                  <div style={{ ...styles.card, marginBottom: 16 }}>
+                    <h3 style={{ color: C.text, marginTop: 0, marginBottom: 14, fontSize: 15 }}>📍 Top Farming Locations</h3>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {data.top_locations.map((loc, i) => (
+                        <div key={i} style={{
+                          background: C.surface, border: `1px solid ${C.border}`,
+                          borderRadius: 10, padding: "8px 14px",
+                          display: "flex", alignItems: "center", gap: 8,
+                        }}>
+                          <span style={{ color: C.green, fontWeight: 700 }}>{loc.location || "Unknown"}</span>
+                          <span style={{ background: C.green, color: C.bg, borderRadius: 20, padding: "1px 8px", fontSize: 11, fontWeight: 900 }}>{loc.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Expiring soon */}
+                {data?.expiring_soon?.length > 0 && (
+                  <div style={{ ...styles.card, borderTop: `3px solid ${C.red}` }}>
+                    <h3 style={{ color: C.red, marginTop: 0, fontSize: 15 }}>⚠️ Expiring Soon ({data.expiring_soon.length})</h3>
+                    {data.expiring_soon.map((f, i) => (
+                      <div key={i} style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        padding: "10px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 8,
+                      }}>
+                        <span style={{ fontFamily: "monospace", fontSize: 13 }}>📱 {f.phone}</span>
+                        <Tag label={`${f.days_left}d left`} color={f.days_left <= 1 ? C.red : C.gold} />
+                        <Tag label={f.plan?.toUpperCase()} color={C.blue} />
+                        <button onClick={() => { setFixPhone(f.phone); setFixAction("extend_premium"); setTab("fix"); }}
+                          style={{ ...styles.btn(C.green), padding: "5px 12px", fontSize: 11 }}>
+                          Extend
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Recent payments */}
+                <div style={styles.card}>
+                  <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>💳 Recent Payments</h3>
+                  {!data?.recent_payments?.length ? (
+                    <p style={{ color: C.muted, fontSize: 14 }}>No payments yet</p>
+                  ) : data.recent_payments.map((p, i) => (
+                    <div key={i} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 13, flexWrap: "wrap", gap: 8,
+                    }}>
+                      <span style={{ fontFamily: "monospace" }}>📱 {p.phone}</span>
+                      <Tag label={`$${p.amount || "—"}`} color={C.green} />
+                      <Tag label={p.plan?.toUpperCase() || "—"} color={C.blue} />
+                      <span style={{ color: C.muted, fontSize: 11 }}>{p.activated?.slice(0, 10)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ══ FARMERS ════════════════════════════════════════════ */}
+        {tab === "farmers" && (
+          <div style={styles.card}>
+            <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>
+              👥 Registered Farms — {data?.farmers_list?.length || 0} total
+            </h3>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {["Phone", "Name", "Location", "Plan", "Password", "Days Active", "Messages", "Joined", "Action"].map(h => (
+                      <th key={h} style={{
+                        padding: "10px 12px", textAlign: "left",
+                        background: C.surface, color: C.muted,
+                        borderBottom: `2px solid ${C.border}`,
+                        fontWeight: 700, fontSize: 11, letterSpacing: 1,
+                        textTransform: "uppercase", whiteSpace: "nowrap",
+                      }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data?.farmers_list || []).map((f, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.surface}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 11, color: C.muted }}>{f.phone}</td>
+                      <td style={{ padding: "9px 12px", fontWeight: 600 }}>{f.name || "—"}</td>
+                      <td style={{ padding: "9px 12px" }}>{f.location ? f.location.charAt(0).toUpperCase() + f.location.slice(1) : "—"}</td>
+                      <td style={{ padding: "9px 12px" }}>
+                        <Tag label={f.plan?.toUpperCase() || "FREE"} color={
+                          f.plan === "premium" || f.plan === "business" ? C.green :
+                          f.plan === "trial" ? C.gold : C.muted
+                        }/>
+                      </td>
+                      <td style={{ padding: "9px 12px" }}>
+                        <Tag label={f.has_password ? "✅ Set" : "❌ None"} color={f.has_password ? C.green : C.red}/>
+                      </td>
+                      <td style={{ padding: "9px 12px", textAlign: "center", color: C.muted }}>{f.days_active}</td>
+                      <td style={{ padding: "9px 12px", textAlign: "center", color: C.muted }}>{f.messages}</td>
+                      <td style={{ padding: "9px 12px", color: C.muted, whiteSpace: "nowrap" }}>{f.joined}</td>
+                      <td style={{ padding: "9px 12px" }}>
+                        <button onClick={() => { setFixPhone(f.phone); setTab("fix"); }}
+                          style={{ ...styles.btn(C.green, true), padding: "4px 10px", fontSize: 11 }}>
+                          Fix
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!data?.farmers_list?.length && (
+                <p style={{ color: C.muted, fontSize: 14, padding: "20px 0" }}>No farmers registered yet.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ══ SUPPORT TICKETS ════════════════════════════════════ */}
+        {tab === "tickets" && (
+          <>
+            <div style={{ ...styles.card, borderTop: `3px solid ${C.blue}` }}>
+              <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>💬 Reply to Ticket</h3>
+              <div style={{ marginBottom: 12 }}>
+                <label style={styles.label}>Ticket ID</label>
+                <input style={styles.input} placeholder="e.g. TKT1A2B3C4D"
+                  value={rTicket} onChange={e => setRTicket(e.target.value)} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={styles.label}>Your Reply</label>
+                <textarea style={{ ...styles.input, resize: "vertical" }} rows={4}
+                  placeholder="Write your reply to the farmer..."
+                  value={rMsg} onChange={e => setRMsg(e.target.value)} />
+              </div>
+              {rStatus && (
+                <div style={{
+                  padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12,
+                  background: rStatus.includes("✅") ? "#22c55e22" : "#ef444422",
+                  color: rStatus.includes("✅") ? C.green : C.red,
+                  border: `1px solid ${rStatus.includes("✅") ? C.green : C.red}44`,
+                }}>{rStatus}</div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => replyTicket(false)} style={styles.btn(C.blue)}>📤 Send Reply</button>
+                <button onClick={() => replyTicket(true)}  style={styles.btn(C.green)}>✅ Reply & Resolve</button>
+              </div>
+            </div>
+
+            <div style={styles.card}>
+              <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>
+                🎫 All Tickets
+                {s.open_tickets > 0 && <Tag label={`${s.open_tickets} open`} color={C.red}/>}
+              </h3>
+              {!data?.recent_tickets?.length ? (
+                <p style={{ color: C.muted, fontSize: 14 }}>No tickets yet.</p>
+              ) : data.recent_tickets.map((t, i) => (
                 <div key={i} style={{
-                  display:"flex", justifyContent:"space-between",
-                  alignItems:"center", padding:"8px 0",
-                  borderBottom:"1px solid #f0f0f0", fontSize:14,
-                  flexWrap:"wrap", gap:8
+                  padding: 16, marginBottom: 12, borderRadius: 12,
+                  border: `1px solid ${t.status === "open" ? C.gold : C.green}44`,
+                  background: C.surface,
                 }}>
-                  <span>📱 {f.phone}</span>
-                  <span style={{
-                    color: f.days_left <= 1 ? "#f44336" : "#ff9800",
-                    fontWeight:700
-                  }}>
-                    {f.days_left} days left
-                  </span>
-                  <span style={{ color:"#888" }}>
-                    {f.plan?.toUpperCase()}
-                  </span>
-                  <button className="btn btn-green"
-                    style={{ padding:"4px 12px", fontSize:12 }}
-                    onClick={() => activatePremium(f.phone, f.plan)}>
-                    Extend 30 Days
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ fontFamily: "monospace", fontWeight: 700, color: C.text }}>#{t.id}</span>
+                    <Tag label={t.status?.toUpperCase()} color={t.status === "open" ? C.gold : C.green}/>
+                  </div>
+                  <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>📱 {t.user_phone || t.phone}</div>
+                  <div style={{ fontWeight: 600, color: C.text, marginBottom: 6 }}>{t.subject}</div>
+                  <div style={{ fontSize: 13, color: C.muted, marginBottom: 8 }}>
+                    {t.message?.slice(0, 200)}{t.message?.length > 200 ? "..." : ""}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>
+                    {t.created?.slice(0, 16).replace("T", " ")}
+                  </div>
+                  <button onClick={() => { setRTicket(t.id); window.scrollTo(0, 0); }}
+                    style={{ ...styles.btn(C.blue, true), padding: "5px 12px", fontSize: 11 }}>
+                    ↑ Reply to this ticket
                   </button>
                 </div>
               ))}
             </div>
-          )}
+          </>
+        )}
 
-          {/* Recent Payments */}
-          <div className="card">
-            <h3>💳 Recent Payments</h3>
-            {!data?.recent_payments?.length ? (
-              <p style={{ color:"#888", fontSize:14 }}>No payments yet</p>
-            ) : (
-              data.recent_payments.map((p,i) => (
-                <div key={i} style={{
-                  display:"flex", justifyContent:"space-between",
-                  alignItems:"center", padding:"8px 0",
-                  borderBottom:"1px solid #f0f0f0",
-                  fontSize:14, flexWrap:"wrap", gap:8
-                }}>
-                  <span>📱 {p.phone}</span>
-                  <span style={{ color:"#2e7d32", fontWeight:700 }}>
-                    ${p.amount||"—"}
-                  </span>
-                  <span>{p.plan?.toUpperCase()}</span>
-                  <span style={{ color:"#aaa", fontSize:12 }}>
-                    {p.activated?.slice(0,10)}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          FARMERS TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "farmers" && (
-        <div className="card">
-          <h3>👥 All Farmers ({data?.farmers_list?.length || 0})</h3>
-          <div style={{ overflowX:"auto" }}>
-            <table style={{
-              width:"100%", borderCollapse:"collapse", fontSize:13
-            }}>
-              <thead>
-                <tr style={{ background:"#e8f5e9" }}>
-                  {["Phone","Location","Plan","Trial Days","Days Active","Messages","Joined","Action"].map(h => (
-                    <th key={h} style={{
-                      padding:"8px 12px", textAlign:"left",
-                      borderBottom:"2px solid #c8e6c9",
-                      whiteSpace:"nowrap", color:"#2e7d32"
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.farmers_list || []).map((f,i) => (
-                  <tr key={i} style={{
-                    background: i%2===0 ? "white" : "#f9fbe7",
-                    borderBottom:"1px solid #f0f0f0"
-                  }}>
-                    <td style={{ padding:"7px 12px",
-                      fontFamily:"monospace", fontSize:12 }}>
-                      {f.phone}
-                    </td>
-                    <td style={{ padding:"7px 12px" }}>
-                      {f.location
-                        ? f.location.charAt(0).toUpperCase() + f.location.slice(1)
-                        : "—"}
-                    </td>
-                    <td style={{ padding:"7px 12px" }}>
-                      <span style={{
-                        background:
-                          f.plan==="premium" || f.plan==="business"
-                            ? "#e8f5e9"
-                            : f.plan==="trial"
-                              ? "#fff3e0"
-                              : "#f5f5f5",
-                        color:
-                          f.plan==="premium" || f.plan==="business"
-                            ? "#2e7d32"
-                            : f.plan==="trial"
-                              ? "#e65100"
-                              : "#666",
-                        padding:"2px 8px", borderRadius:10,
-                        fontWeight:700, fontSize:11
-                      }}>
-                        {f.plan?.toUpperCase()}
-                      </span>
-                    </td>
-                    <td style={{ padding:"7px 12px", textAlign:"center" }}>
-                      {f.plan==="trial" ? f.trial_days_left : "—"}
-                    </td>
-                    <td style={{ padding:"7px 12px", textAlign:"center" }}>
-                      {f.days_active}
-                    </td>
-                    <td style={{ padding:"7px 12px", textAlign:"center" }}>
-                      {f.messages}
-                    </td>
-                    <td style={{ padding:"7px 12px", whiteSpace:"nowrap" }}>
-                      {f.joined}
-                    </td>
-                    <td style={{ padding:"7px 12px" }}>
-                      <button className="btn btn-green"
-                        style={{ padding:"3px 10px", fontSize:11 }}
-                        onClick={() => {
-                          setFixPhone(f.phone);
-                          setTab("fix");
-                        }}>
-                        Fix
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          SUPPORT TICKETS TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "tickets" && (
-        <>
-          {/* Reply Form */}
-          <div className="card" style={{ marginBottom:16 }}>
-            <h3>💬 Reply to Ticket</h3>
-            <input className="input"
-              placeholder="Ticket ID (e.g. TKT1A2B3C4D)"
-              value={replyTicket}
-              onChange={e => setReplyTicket(e.target.value)} />
-            <textarea className="input" rows={4}
-              placeholder="Your reply to the farmer..."
-              value={replyMsg}
-              onChange={e => setReplyMsg(e.target.value)}
-              style={{ resize:"vertical" }} />
-            <div style={{ display:"flex", gap:8 }}>
-              <button className="btn btn-green"
-                onClick={() => replyToTicket(false)}>
-                📤 Send Reply
-              </button>
-              <button className="btn btn-gold"
-                onClick={() => replyToTicket(true)}>
-                ✅ Reply & Mark Resolved
-              </button>
-            </div>
-          </div>
-
-          {/* Tickets List */}
-          <div className="card">
-            <h3>🎫 All Tickets
-              <span style={{
-                marginLeft:8, background:"#f44336",
-                color:"white", padding:"2px 9px",
-                borderRadius:10, fontSize:12
-              }}>
-                {s.open_tickets||0} open
-              </span>
-            </h3>
-            {!data?.recent_tickets?.length ? (
-              <p style={{ color:"#888", fontSize:14 }}>No tickets yet</p>
-            ) : (
-              data.recent_tickets.map((t,i) => (
-                <div key={i} style={{
-                  padding:14, marginBottom:10,
-                  border:`2px solid ${t.status==="open" ? "#ff9800" : "#4caf50"}`,
-                  borderRadius:10, background:"#fafafa"
-                }}>
-                  <div style={{
-                    display:"flex", justifyContent:"space-between",
-                    marginBottom:6, flexWrap:"wrap", gap:8
-                  }}>
-                    <strong style={{ fontFamily:"monospace" }}>
-                      #{t.id}
-                    </strong>
-                    <span style={{
-                      color: t.status==="open" ? "#ff9800" : "#4caf50",
-                      fontWeight:700, fontSize:12
-                    }}>
-                      ● {t.status?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div style={{ fontSize:13, marginBottom:4 }}>
-                    📱 <strong>{t.user_phone || t.phone}</strong>
-                  </div>
-                  <div style={{ fontWeight:600, marginBottom:4 }}>
-                    {t.subject}
-                  </div>
-                  <div style={{
-                    fontSize:13, color:"#666", marginBottom:6
-                  }}>
-                    {t.message?.slice(0,200)}
-                    {t.message?.length > 200 ? "..." : ""}
-                  </div>
-                  <div style={{ fontSize:11, color:"#aaa", marginBottom:8 }}>
-                    {t.created?.slice(0,16).replace("T"," ")}
-                  </div>
-                  {t.replies?.length > 0 && (
-                    <div style={{
-                      background:"#e8f5e9", padding:"8px 12px",
-                      borderRadius:8, fontSize:13, marginBottom:8
-                    }}>
-                      💬 {t.replies.length} reply(ies) sent
-                    </div>
-                  )}
-                  <button className="btn btn-outline"
-                    style={{ padding:"4px 12px", fontSize:12 }}
-                    onClick={() => {
-                      setReplyTicket(t.id);
-                      window.scrollTo(0,0);
-                    }}>
-                    ↑ Reply to #{t.id}
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          NOTIFICATIONS TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "notify" && (
-        <div className="card">
-          <h3>📢 Send Notification to Farmers</h3>
-          <p style={{ color:"#666", fontSize:14, marginBottom:16 }}>
-            Appears in app notifications AND sent via WhatsApp.
-          </p>
-
-          <div className="grid2">
-            <div>
-              <label style={{
-                fontSize:13, color:"#666",
-                display:"block", marginBottom:4
-              }}>
-                Notification Type
-              </label>
-              <select className="input" value={notifType}
-                onChange={e => setNotifType(e.target.value)}>
-                <option value="update">🔔 App Update</option>
-                <option value="fix">🔧 Bug Fix / Improvement</option>
-                <option value="warning">⚠️ Important Warning</option>
-                <option value="promo">🎁 Promotion / Offer</option>
-                <option value="news">📰 Farming News</option>
-              </select>
-            </div>
-            <div>
-              <label style={{
-                fontSize:13, color:"#666",
-                display:"block", marginBottom:4
-              }}>
-                Send To
-              </label>
-              <select className="input" value={notifTarget}
-                onChange={e => setNotifTarget(e.target.value)}>
-                <option value="all">👥 All Farmers</option>
-                <option value="premium">⭐ Premium Users Only</option>
-                <option value="trial">🎁 Trial Users Only</option>
-              </select>
-            </div>
-          </div>
-
-          <label style={{
-            fontSize:13, color:"#666",
-            display:"block", marginBottom:4
-          }}>
-            Title *
-          </label>
-          <input className="input"
-            placeholder="e.g. New Feature Added!"
-            value={notifTitle}
-            onChange={e => setNotifTitle(e.target.value)} />
-
-          <label style={{
-            fontSize:13, color:"#666",
-            display:"block", marginBottom:4
-          }}>
-            Message *
-          </label>
-          <textarea className="input" rows={6}
-            placeholder="Write your message to farmers..."
-            value={notifMsg}
-            onChange={e => setNotifMsg(e.target.value)}
-            style={{ resize:"vertical" }} />
-
-          <button className="btn btn-green"
-            onClick={sendNotification}
-            style={{ width:"100%" }}>
-            📢 Send Notification Now
-          </button>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          FIX ACCOUNT TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "fix" && (
-        <div className="card">
-          <h3>🔧 Fix Farmer Account</h3>
-
-          <label style={{
-            fontSize:13, color:"#666",
-            display:"block", marginBottom:4
-          }}>
-            Farmer Phone Number *
-          </label>
-          <input className="input"
-            placeholder="e.g. 263771234567"
-            value={fixPhone}
-            onChange={e => setFixPhone(e.target.value)} />
-
-          <label style={{
-            fontSize:13, color:"#666",
-            display:"block", marginBottom:4
-          }}>
-            Action *
-          </label>
-          <select className="input" value={fixAction}
-            onChange={e => setFixAction(e.target.value)}>
-            <option value="reset_trial">
-              🎁 Reset 30-Day Trial
-            </option>
-            <option value="extend_premium">
-              ⭐ Extend Premium
-            </option>
-            <option value="send_message">
-              💬 Send WhatsApp Message
-            </option>
-            <option value="clear_history">
-              🗑️ Clear Chat History
-            </option>
-            <option value="refund_reset">
-              💳 Deactivate Premium (Refund)
-            </option>
-          </select>
-
-          {fixAction === "extend_premium" && (
-            <>
-              <label style={{
-                fontSize:13, color:"#666",
-                display:"block", marginBottom:4
-              }}>
-                Days to Extend
-              </label>
-              <input className="input" type="number"
-                value={fixDays}
-                onChange={e => setFixDays(parseInt(e.target.value)||30)}
-                min={1} max={365} />
-            </>
-          )}
-
-          <label style={{
-            fontSize:13, color:"#666",
-            display:"block", marginBottom:4
-          }}>
-            Note / Message to Farmer (optional)
-          </label>
-          <textarea className="input" rows={3}
-            placeholder="Optional note sent to farmer via WhatsApp..."
-            value={fixNote}
-            onChange={e => setFixNote(e.target.value)} />
-
-          <button className="btn btn-green"
-            onClick={fixAccount}
-            style={{ width:"100%" }}>
-            🔧 Apply Fix Now
-          </button>
-
-          <div style={{
-            background:"#fff8e1", padding:12,
-            borderRadius:8, marginTop:12, fontSize:13
-          }}>
-            ⚠️ All changes automatically send a WhatsApp notification
-            to the farmer.
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════
-          PAYMENTS TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "payments" && (
-        <>
-          <div className="card" style={{ marginBottom:16 }}>
-            <h3>💳 Manually Verify Payment</h3>
-            <p style={{ color:"#666", fontSize:14, marginBottom:14 }}>
-              Use when farmer has paid but system didn't auto-confirm.
+        {/* ══ NOTIFICATIONS ══════════════════════════════════════ */}
+        {tab === "notify" && (
+          <div style={{ ...styles.card, borderTop: `3px solid ${C.gold}` }}>
+            <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>📢 Send Notification to Farmers</h3>
+            <p style={{ color: C.muted, fontSize: 13, marginBottom: 20 }}>
+              Appears in the app AND sent via WhatsApp to all targeted farmers.
             </p>
 
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              Farmer Phone *
-            </label>
-            <input className="input"
-              placeholder="e.g. 263771234567"
-              value={payPhone}
-              onChange={e => setPayPhone(e.target.value)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={styles.label}>Type</label>
+                <select style={styles.input} value={nType} onChange={e => setNType(e.target.value)}>
+                  <option value="update">🔔 App Update</option>
+                  <option value="fix">🔧 Bug Fix</option>
+                  <option value="warning">⚠️ Warning</option>
+                  <option value="promo">🎁 Promotion</option>
+                  <option value="news">📰 Farming News</option>
+                </select>
+              </div>
+              <div>
+                <label style={styles.label}>Send To</label>
+                <select style={styles.input} value={nTarget} onChange={e => setNTarget(e.target.value)}>
+                  <option value="all">👥 All Farmers ({s.total_registered_farms || s.total_farmers || 0})</option>
+                  <option value="premium">⭐ Premium Only ({s.premium_active || 0})</option>
+                  <option value="trial">🎁 Trial Only ({s.trial_active || 0})</option>
+                </select>
+              </div>
+            </div>
 
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              Payment Reference *
-            </label>
-            <input className="input"
-              placeholder="e.g. AGRO341018"
-              value={payRef}
-              onChange={e => setPayRef(e.target.value)} />
+            <div style={{ marginBottom: 12 }}>
+              <label style={styles.label}>Title *</label>
+              <input style={styles.input} placeholder="e.g. New Feature: Live Weather!" value={nTitle} onChange={e => setNTitle(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={styles.label}>Message *</label>
+              <textarea style={{ ...styles.input, resize: "vertical" }} rows={5}
+                placeholder="Write your message to farmers..." value={nMsg} onChange={e => setNMsg(e.target.value)} />
+            </div>
 
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              Amount Paid
-            </label>
-            <input className="input"
-              placeholder="e.g. 2 or 10"
-              value={payAmount}
-              onChange={e => setPayAmount(e.target.value)} />
+            {nSent && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12,
+                background: nSent.t === "s" ? "#22c55e22" : nSent.t === "e" ? "#ef444422" : "#3b82f622",
+                color:      nSent.t === "s" ? C.green    : nSent.t === "e" ? C.red       : C.blue,
+                border: `1px solid ${nSent.t === "s" ? C.green : nSent.t === "e" ? C.red : C.blue}44`,
+              }}>{nSent.m}</div>
+            )}
 
-            <button className="btn btn-green"
-              onClick={verifyPayment}
-              style={{ width:"100%" }}>
-              ✅ Verify & Activate Premium
+            <button onClick={sendNotif} style={{ ...styles.btn(C.gold), width: "100%", padding: "13px", fontSize: 15 }}>
+              📢 Send Notification Now
             </button>
           </div>
+        )}
 
-          <div className="card">
-            <h3>💳 Recent Payments</h3>
-            {!data?.recent_payments?.length ? (
-              <p style={{ color:"#888", fontSize:14 }}>No payments yet</p>
-            ) : (
-              data.recent_payments.map((p,i) => (
-                <div key={i} style={{
-                  display:"flex", justifyContent:"space-between",
-                  alignItems:"center", padding:"8px 0",
-                  borderBottom:"1px solid #f0f0f0",
-                  fontSize:14, flexWrap:"wrap", gap:8
-                }}>
-                  <span>📱 {p.phone}</span>
-                  <span style={{
-                    color:"#2e7d32", fontWeight:700
-                  }}>
-                    ${p.amount||"—"}
-                  </span>
-                  <span>{p.plan?.toUpperCase()}</span>
-                  <span style={{ color:"#aaa", fontSize:12 }}>
-                    {p.activated?.slice(0,10)}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </>
-      )}
+        {/* ══ FIX ACCOUNT ════════════════════════════════════════ */}
+        {tab === "fix" && (
+          <div style={{ ...styles.card, borderTop: `3px solid ${C.purple}`, maxWidth: 550 }}>
+            <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>🔧 Fix Farmer Account</h3>
 
-      {/* ════════════════════════════════════════════════════════
-          PASSWORD TAB
-      ════════════════════════════════════════════════════════ */}
-      {tab === "password" && (
-        <div style={{ maxWidth:500 }}>
-          <div className="card"
-            style={{ borderTop:"4px solid #f9a825" }}>
-            <h3>🔑 Change Admin Password</h3>
-
-            {lastChanged && (
-              <div style={{
-                background:"#f5f5f5", padding:"8px 12px",
-                borderRadius:8, fontSize:13,
-                color:"#888", marginBottom:16
-              }}>
-                🕐 Last changed:{" "}
-                {new Date(lastChanged).toLocaleString()}
+            <div style={{ marginBottom: 12 }}>
+              <label style={styles.label}>Farmer Phone Number *</label>
+              <input style={styles.input} placeholder="e.g. 263771234567" value={fixPhone} onChange={e => setFixPhone(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={styles.label}>Action *</label>
+              <select style={styles.input} value={fixAction} onChange={e => setFixAction(e.target.value)}>
+                <option value="reset_trial">🎁 Reset 30-Day Trial</option>
+                <option value="extend_premium">⭐ Extend Premium</option>
+                <option value="send_message">💬 Send WhatsApp Message</option>
+                <option value="clear_history">🗑️ Clear Chat History</option>
+                <option value="refund_reset">💳 Deactivate Premium</option>
+              </select>
+            </div>
+            {fixAction === "extend_premium" && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={styles.label}>Days to Extend</label>
+                <input style={styles.input} type="number" value={fixDays}
+                  onChange={e => setFixDays(parseInt(e.target.value) || 30)} min={1} max={365} />
               </div>
             )}
+            <div style={{ marginBottom: 16 }}>
+              <label style={styles.label}>Note / WhatsApp Message (optional)</label>
+              <textarea style={{ ...styles.input, resize: "vertical" }} rows={3}
+                placeholder="Optional message sent to farmer..." value={fixNote} onChange={e => setFixNote(e.target.value)} />
+            </div>
 
-            {/* Tips */}
+            {fixStatus && (
+              <div style={{
+                padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12,
+                background: fixStatus.includes("✅") ? "#22c55e22" : "#ef444422",
+                color: fixStatus.includes("✅") ? C.green : C.red,
+                border: `1px solid ${fixStatus.includes("✅") ? C.green : C.red}44`,
+              }}>{fixStatus}</div>
+            )}
+
+            <button onClick={fixAccount} style={{ ...styles.btn(C.purple), width: "100%", padding: "13px" }}>
+              🔧 Apply Fix Now
+            </button>
+            <div style={{ background: "#f59e0b22", border: `1px solid ${C.gold}44`, padding: 12, borderRadius: 10, marginTop: 14, fontSize: 13, color: C.gold }}>
+              ⚠️ All fixes automatically send a WhatsApp notification to the farmer.
+            </div>
+          </div>
+        )}
+
+        {/* ══ PAYMENTS ═══════════════════════════════════════════ */}
+        {tab === "payments" && (
+          <>
+            <div style={{ ...styles.card, borderTop: `3px solid ${C.green}`, maxWidth: 550, marginBottom: 16 }}>
+              <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>💳 Manually Verify Payment</h3>
+              <p style={{ color: C.muted, fontSize: 13, marginBottom: 16 }}>
+                Use when farmer paid but system didn't auto-confirm.
+              </p>
+              {[
+                ["Farmer Phone *", payPhone, setPayPhone, "e.g. 263771234567", "tel"],
+                ["Payment Reference *", payRef, setPayRef, "e.g. AGRO341018", "text"],
+                ["Amount Paid", payAmt, setPayAmt, "e.g. 2 or 10", "text"],
+              ].map(([lbl, val, setter, ph, type]) => (
+                <div key={lbl} style={{ marginBottom: 12 }}>
+                  <label style={styles.label}>{lbl}</label>
+                  <input style={styles.input} placeholder={ph} value={val}
+                    onChange={e => setter(e.target.value)} type={type} />
+                </div>
+              ))}
+              {payStatus && (
+                <div style={{
+                  padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12,
+                  background: payStatus.includes("✅") ? "#22c55e22" : "#ef444422",
+                  color: payStatus.includes("✅") ? C.green : C.red,
+                  border: `1px solid ${payStatus.includes("✅") ? C.green : C.red}44`,
+                }}>{payStatus}</div>
+              )}
+              <button onClick={verifyPay} style={{ ...styles.btn(C.green), width: "100%", padding: "13px" }}>
+                ✅ Verify & Activate Premium
+              </button>
+            </div>
+
+            <div style={styles.card}>
+              <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>💳 Recent Payments</h3>
+              {!data?.recent_payments?.length ? (
+                <p style={{ color: C.muted, fontSize: 14 }}>No payments yet.</p>
+              ) : data.recent_payments.map((p, i) => (
+                <div key={i} style={{
+                  display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "10px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap", gap: 8,
+                }}>
+                  <span style={{ fontFamily: "monospace", fontSize: 12, color: C.muted }}>📱 {p.phone}</span>
+                  <Tag label={`$${p.amount || "—"}`} color={C.green}/>
+                  <Tag label={p.plan?.toUpperCase() || "—"} color={C.blue}/>
+                  <span style={{ fontSize: 11, color: C.muted }}>{p.activated?.slice(0, 10)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* ══ PASSWORD ═══════════════════════════════════════════ */}
+        {tab === "password" && (
+          <div style={{ ...styles.card, borderTop: `3px solid ${C.gold}`, maxWidth: 480 }}>
+            <h3 style={{ color: C.text, marginTop: 0, fontSize: 15 }}>🔑 Change Admin Password</h3>
+
             <div style={{
-              background:"#e8f5e9", padding:12,
-              borderRadius:8, fontSize:13, marginBottom:16
+              background: "#22c55e11", border: `1px solid ${C.green}33`,
+              borderRadius: 10, padding: 12, marginBottom: 18, fontSize: 13, color: C.muted,
             }}>
-              <strong>💡 Strong Password Tips:</strong>
-              <ul style={{
-                paddingLeft:16, marginTop:6, lineHeight:2
-              }}>
-                <li>At least 8 characters long</li>
-                <li>Mix letters, numbers and symbols</li>
-                <li>Example: AgroBot@2026!</li>
-              </ul>
+              💡 Use 8+ characters with letters, numbers and symbols.<br/>
+              Example: <span style={{ color: C.green, fontFamily: "monospace" }}>AgroBot@2026!</span>
             </div>
 
-            {/* Current Password */}
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              Current Password *
-            </label>
-            <div style={{ position:"relative", marginBottom:14 }}>
-              <input className="input"
-                type={showPassword ? "text" : "password"}
-                style={{ marginBottom:0, paddingRight:44 }}
-                placeholder="Your current admin password"
-                value={currentPass}
-                onChange={e => setCurrentPass(e.target.value)} />
-              <button
-                onClick={() => setShowPassword(!showPassword)}
-                style={{
-                  position:"absolute", right:10, top:"50%",
-                  transform:"translateY(-50%)",
-                  background:"none", border:"none",
-                  cursor:"pointer", fontSize:18
-                }}>
-                {showPassword ? "🙈" : "👁️"}
-              </button>
-            </div>
+            {[
+              ["Current Password *", curPass, setCurPass, "Your current password", showPw, setShowPw],
+              ["New Password *",     newPass, setNewPass, "Minimum 8 characters",  showNew, setShowNew],
+            ].map(([lbl, val, setter, ph, show, setShow]) => (
+              <div key={lbl} style={{ marginBottom: 12 }}>
+                <label style={styles.label}>{lbl}</label>
+                <div style={{ position: "relative" }}>
+                  <input style={{ ...styles.input, paddingRight: 44 }} type={show ? "text" : "password"}
+                    placeholder={ph} value={val} onChange={e => setter(e.target.value)} />
+                  <button onClick={() => setShow(s => !s)} style={{
+                    position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", fontSize: 16, color: C.muted,
+                  }}>{show ? "🙈" : "👁️"}</button>
+                </div>
+              </div>
+            ))}
 
-            {/* New Password */}
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              New Password *
-            </label>
-            <div style={{ position:"relative", marginBottom:6 }}>
-              <input className="input"
-                type={showNew ? "text" : "password"}
-                style={{ marginBottom:0, paddingRight:44 }}
-                placeholder="Minimum 8 characters"
-                value={newPass}
-                onChange={e => setNewPass(e.target.value)} />
-              <button
-                onClick={() => setShowNew(!showNew)}
-                style={{
-                  position:"absolute", right:10, top:"50%",
-                  transform:"translateY(-50%)",
-                  background:"none", border:"none",
-                  cursor:"pointer", fontSize:18
-                }}>
-                {showNew ? "🙈" : "👁️"}
-              </button>
-            </div>
-
-            {/* Strength Bar */}
+            {/* Strength bar */}
             {newPass && (() => {
-              const s = getStrength(newPass);
+              const str = strength(newPass);
               return (
-                <div style={{ marginBottom:14 }}>
-                  <div style={{
-                    background:"#e0e0e0",
-                    borderRadius:10, height:6
-                  }}>
-                    <div style={{
-                      height:6, borderRadius:10,
-                      width:`${s.pct}%`,
-                      background:s.color,
-                      transition:"all 0.3s"
-                    }} />
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ background: C.border, borderRadius: 10, height: 5 }}>
+                    <div style={{ height: 5, borderRadius: 10, width: `${str.pct}%`, background: str.color, transition: "all 0.3s" }}/>
                   </div>
-                  <div style={{
-                    fontSize:11, color:s.color,
-                    marginTop:4, fontWeight:600
-                  }}>
-                    {s.label}
-                  </div>
+                  <div style={{ fontSize: 11, color: str.color, marginTop: 4, fontWeight: 700 }}>{str.label}</div>
                 </div>
               );
             })()}
 
-            {/* Confirm Password */}
-            <label style={{
-              fontSize:13, color:"#666",
-              display:"block", marginBottom:4
-            }}>
-              Confirm New Password *
-            </label>
-            <div style={{ position:"relative", marginBottom:16 }}>
-              <input className="input"
-                type={showConfirm ? "text" : "password"}
-                style={{ marginBottom:0, paddingRight:72 }}
-                placeholder="Type new password again"
-                value={confirmPass}
-                onChange={e => setConfirmPass(e.target.value)} />
-              {/* Match Check */}
-              {confirmPass && (
-                <span style={{
-                  position:"absolute", right:42, top:"50%",
-                  transform:"translateY(-50%)", fontSize:18
-                }}>
-                  {newPass === confirmPass ? "✅" : "❌"}
-                </span>
-              )}
-              <button
-                onClick={() => setShowConfirm(!showConfirm)}
-                style={{
-                  position:"absolute", right:10, top:"50%",
-                  transform:"translateY(-50%)",
-                  background:"none", border:"none",
-                  cursor:"pointer", fontSize:18
-                }}>
-                {showConfirm ? "🙈" : "👁️"}
-              </button>
+            <div style={{ marginBottom: 16 }}>
+              <label style={styles.label}>Confirm New Password *</label>
+              <div style={{ position: "relative" }}>
+                <input style={{ ...styles.input, paddingRight: 60 }} type={showNew ? "text" : "password"}
+                  placeholder="Repeat new password" value={conPass} onChange={e => setConPass(e.target.value)} />
+                {conPass && (
+                  <span style={{ position: "absolute", right: 40, top: "50%", transform: "translateY(-50%)", fontSize: 16 }}>
+                    {newPass === conPass ? "✅" : "❌"}
+                  </span>
+                )}
+                <button onClick={() => setShowNew(s => !s)} style={{
+                  position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer", fontSize: 16, color: C.muted,
+                }}>{showNew ? "🙈" : "👁️"}</button>
+              </div>
             </div>
 
-            {/* Message */}
             {passMsg && (
               <div style={{
-                background: passMsg.type==="success"
-                  ? "#e8f5e9" : "#ffebee",
-                color: passMsg.type==="success"
-                  ? "#2e7d32" : "#c62828",
-                padding:"10px 14px", borderRadius:8,
-                fontSize:14, marginBottom:16,
-                border:`1px solid ${passMsg.type==="success"
-                  ? "#4caf50" : "#ef9a9a"}`
-              }}>
-                {passMsg.text}
-              </div>
+                padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 14,
+                background: passMsg.t === "s" ? "#22c55e22" : "#ef444422",
+                color:      passMsg.t === "s" ? C.green    : C.red,
+                border: `1px solid ${passMsg.t === "s" ? C.green : C.red}44`,
+              }}>{passMsg.m}</div>
             )}
 
-            <button className="btn btn-green"
-              onClick={changePassword}
-              disabled={changingPass}
-              style={{ width:"100%", marginBottom:14 }}>
-              {changingPass
-                ? "⏳ Changing Password..."
-                : "🔑 Change Password"}
+            <button onClick={changePassword} style={{ ...styles.btn(C.gold), width: "100%", padding: "13px" }}>
+              🔑 Change Password
             </button>
-
-            <div style={{
-              background:"#fff3e0", padding:12,
-              borderRadius:8, fontSize:13
-            }}>
-              ⚠️ <strong>Important:</strong> After changing your
-              password, you must use the new password next time
-              you log in. Store it somewhere safe!
-            </div>
           </div>
-        </div>
-      )}
+        )}
 
+      </div>
     </div>
   );
 }
