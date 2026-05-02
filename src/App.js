@@ -67,7 +67,7 @@ export default function App() {
       case "loans":         return <Loans         user={user} />;
       case "farmplan":      return <FarmPlan      user={user} />;
       case "photo":         return <PhotoAnalysis user={user} />;
-      case "admin":         return <Admin />;
+      case "admin": return <Admin onExit={() => setPage("dashboard")} />;
       case "support":       return <Support       user={user} />;
       case "notifications": return <Notifications user={user} />;
       case "payment":       return (
